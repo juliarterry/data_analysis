@@ -1,0 +1,173 @@
+---
+title: "Fungi Phenology"
+output: html_notebook
+---
+
+To start lets clear the environment and load all relevant packages
+```{r}
+rm(list=ls())
+library(rgbif)
+library(usethis)
+library(tidyverse)
+```
+
+The rgbif package allows data to be extracted from the RGBIF database directly from R. We can extract data via the API using the occ_download function. First, we need to input some RGBIF log in details into the R environment so we can access the RGBIF data base without needing to add the login details as arguments in the functions for extracting data. Open the .Renviron file and edit to look like this:
+GBIF_USER="jsmith"
+GBIF_PWD="safe_fake_password_123"
+GBIF_EMAIL="jsmith@mail.com"
+
+```{r}
+#open .Renviron
+usethis::edit_r_environ() 
+```
+
+First, we need to set our variables for the search, which here are species, continent, and year as that is what is relevant to the research question. Then, we can use pred() to add these criteria to the query. I have also added here pred_default(), which includes some standard filters useful for removing incomplete or irrelevant data; this removes occurrences with: geospatial issues, no coordinates, absent records, fossils and living specimens. 
+
+```{r}
+#set variables
+taxon_key <- name_backbone("Amanita muscaria")$usageKey
+continent <- "europe"
+year <- 2000 #all years >= 2000
+
+#request data
+occ_download(
+  pred("taxonKey", taxon_key), 
+  pred("continent", continent),
+  pred_gte("year", year),
+  pred_default(),
+  format = "SIMPLE_CSV")
+```
+
+We can check on the status of the request, and then load the results into the globl environment once they're ready
+
+```{r}
+#check status
+occ_download_wait('0005988-250325103851331') 
+
+#retrieve results
+raw_data <- occ_download_get('0005988-250325103851331') %>%
+  occ_download_import() 
+```
+
+Let's have a look!
+
+```{r}
+head(raw_data)
+```
+
+There are a lot of columns that aren't relevant here that we can get rid of. We also only really want observations from iNaturalist, so the collection and verification method is consistent across all observations used to answer our question.
+
+```{r}
+clean_data <- raw_data %>%
+  #filter out only results from iNaturalist
+  filter(institutionCode == "iNaturalist") %>%
+  #select only cols relevant for analysis
+  dplyr::select(c(decimalLatitude, decimalLongitude, eventDate, month, year, day)) %>%
+  #include only years since iNaturalist was released and only including full years
+  filter(year < 2025) %>%
+  filter(2007 < year)
+```
+
+Next, we want to look at when most observations were for each year to see if this has changed over time. Due to the nature of citizen science data, and in particular iNaturalist which relies on smartphones, count data over this period of time is not particularly useful. It's more telling us how many people are using iNaturalist, which we already know has increased hugely since it began in 2008. Instead, lets plot monthly observations as a proportion of total annual observations. 
+
+```{r}
+#count observations per month for each year
+#count observations per year-month
+monthly_counts <- clean_data %>%
+  #count total obs for each month
+  group_by(year, month) %>%
+  summarise(n = n()) %>%
+  ungroup() %>%
+  #group by year and calculate total annual observations
+  group_by(year) %>%
+  mutate(total = sum(n)) %>%
+  ungroup() %>%
+  #add a new column which shows monthly observations as a proportion of annual
+  mutate(prop = n/total)
+```
+
+Let's pop in a quick test to make sure nothing has gone skew-whiff! The sum of all unique values of annual total should be equal to the number of observations:
+
+```{r}
+if(sum(unique(monthly_counts$total)) == nrow(clean_data)){
+  print("all is well :)")
+}else{
+  print("oopsie woopsie")
+}
+```
+
+Great! we can visualise the data now to see any obvious patterns at a first glance
+
+```{r}
+ggplot(monthly_counts, aes(x = month, y = prop, color = factor(year))) +
+  geom_line() +  
+  geom_point() + 
+  labs(title = "Observations per Month",
+       x = "Date (Month)",
+       y = "Proportion of Annual Observations",
+       color = "Year") +
+  theme_minimal()
+```
+Fruiting time does seem to be shifting later at a first glance, but perhaps by month is not granular enough to really see what's going on - let's check by week instead.
+
+First, define a function to find the peak 7-day window in one year. This is done using a sliding window so it can find any 7-day period, not just calendar weeks.
+
+```{r}
+find_peak_window <- function(df_year) {
+  df_year <- df_year %>%
+    arrange(date)
+  
+  #count number of observations in each 7-day window using slider
+  counts <- slide_index_vec(
+    .x = df_year$date,
+    .i = df_year$date,
+    .f = ~ sum(.x >= .x[1] & .x < .x[1] + 7),
+    .ptype = integer()
+  )
+  
+  #identify the week with the highest observations 
+  peak_index <- which.max(counts)
+  start_date <- df_year$date[peak_index]
+  end_date <- start_date + 6
+  
+  #return table with start, end, and count for each peak week
+  tibble(
+    year = unique(df_year$year),
+    start_date = start_date,
+    end_date = end_date,
+    n_obs = counts[peak_index]
+  )
+}
+```
+
+Then, apply this function to each year
+```{r}
+peak_windows <- clean_data %>%
+  #filter out years with too few observations
+  filter(year > 2010) %>%
+  #convert the date column into date format, removing the time and year
+  mutate(date = as.Date(eventDate)) %>%
+  #group by year and apply sliding window function
+  group_by(year) %>%
+  group_split() %>%
+  purrr::map_dfr(find_peak_window) %>%
+  ungroup() %>%
+  #find the index value of each start date in numbered day of the year
+  mutate(start_date = yday(start_date))
+
+#plot results
+ggplot(peak_windows, aes(x = year, y = start_date)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  theme_minimal()
+```
+definitely looks like it's getting later! To check this, we can fit a linear model
+
+```{r}
+model <- lm(start_date ~ year, data = peak_windows)
+summary(model)
+```
+
+
+
+
