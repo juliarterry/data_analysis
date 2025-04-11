@@ -4,6 +4,7 @@ library(rgbif)
 library(usethis)
 library(tidyverse)
 library(lubridate)
+library(slider)
 
 ####################################################################################
 #DATA EXTRACTION
@@ -89,87 +90,11 @@ ggplot(monthly_counts, aes(x = month, y = prop, color = factor(year))) +
        color = "Year") +
   theme_minimal()
 
-#from a first glance, it does look like the fruiting time is shifting later as we hypothesized, but we are losing some details in grouping by month, so let's increase the granularity
-daily_counts <- clean_data %>%
-  #convert the date column into date format, removing the time and year
-  mutate(date = as.Date(eventDate)) %>%
-  mutate(date = format(date, "%m-%d")) %>%
-  dplyr::select(!c(eventDate, month, day, decimalLatitude, decimalLongitude)) %>%
-  #count total obs for each day
-  group_by(year, date) %>%
-  mutate(n = n()) %>%
-  ungroup() %>%
-  #group by year and calculate total annual observations
-  group_by(year) %>%
-  mutate(total = n()) %>%
-  ungroup() %>%
-  #add a new column which shows monthly observations as a proportion of annual
-  mutate(prop = n/total)
-
-#let's pop in a quick test to make sure nothing has gone skew-whiff! 
-#the sum of all unique values of annual total should be equal to the number of observations
-if(sum(unique(daily_counts$total)) == nrow(clean_data)){
-  print("all is well :)")
-}else{
-  print("oopsie woopsie")
-}
-
-#specify date as date so it is treated as continuous in the plot
-daily_counts$date <- as.Date(daily_counts$date, format = "%m-%d")
-  
-#plot the data, grouping by year
-daily_plot <- ggplot(daily_counts, aes(x = date, y = prop, color = factor(year))) +
-  geom_smooth(se = FALSE) +  
-  labs(title = "Annual Distribution of Observations",
-       x = "Date",
-       y = "Proportion of Annual Observations",
-       color = "Year") +
-  #adjust date labels to show only month
-  scale_x_date(date_labels = "%b", date_breaks = "1 month") +
-  theme_classic()  
-
-#look at the confidence intervals of each year clearly
-daily_plot +
-  facet_wrap(~year)
-
-#check number of obs in first few years
-yr_totals <- daily_counts %>%
-  select(c(year, total)) %>%
-  distinct() %>%
-  arrange(year)
-
-#lets remove years which have less that 100 observations and re-plot
-daily_counts_lrg <- daily_counts %>%
-  filter(total > 150)
-
-daily_plot <- ggplot(daily_counts_lrg, aes(x = date, y = prop, color = factor(year))) +
-  geom_smooth(se = FALSE) +  
-  labs(title = "Annual Distribution of Observations",
-       x = "Date",
-       y = "Proportion of Annual Observations",
-       color = "Year") +
-  #adjust date labels to show only month
-  scale_x_date(date_labels = "%b", date_breaks = "1 month") +
-  theme_classic()  
-
-#lets do some stats and check out these results! 
-#plot just the day with the most fruiting occurrences
-daily_counts_lrg <- daily_counts_lrg %>%
-  group_by(year) %>%
-  dplyr::filter(n == max(n)) %>%
-  ungroup() %>%
-  distinct() %>%
-  mutate(day_of_year = yday(date)) 
-  
-#fit a linear model
-model <- lm(day_of_year ~ year, data = daily_counts_lrg)
-summary(model)
-
-#check by week instead
-library(lubridate)
-library(slider)
+#it does seem to be shifting later at a first glance, but perhaps by month is not granular enough to really see what's going on
+#let's check by week instead
 
 #define a function to find the peak 7-day window in one year
+# - this is done using a sliding window so it can find any 7-day period, not just calendar weeks 
 find_peak_window <- function(df_year) {
   df_year <- df_year %>%
     arrange(date)
@@ -182,10 +107,12 @@ find_peak_window <- function(df_year) {
     .ptype = integer()
   )
   
+  #identify the week with the highest observations 
   peak_index <- which.max(counts)
   start_date <- df_year$date[peak_index]
   end_date <- start_date + 6
   
+  #return table with start, end, and count for each peak week
   tibble(
     year = unique(df_year$year),
     start_date = start_date,
@@ -194,35 +121,32 @@ find_peak_window <- function(df_year) {
   )
 }
 
-#apply to each year
+#apply this function to each year
 peak_windows <- clean_data %>%
-  #convert the date column into date format, removing the time and year
+  #filter out years with too few observations
   filter(year > 2010) %>%
+  #convert the date column into date format, removing the time and year
   mutate(date = as.Date(eventDate)) %>%
-  mutate(date = format(date, "%m-%d")) %>%
-  #specify date as date so it is treated as continuous in the plot
-  mutate(date = as.Date(date, format = "%m-%d")) %>%
-  dplyr::select(!c(eventDate, month, day, decimalLatitude, decimalLongitude)) %>%
+  #group by year and apply sliding window function
   group_by(year) %>%
   group_split() %>%
-  purrr::map_dfr(find_peak_window)
+  purrr::map_dfr(find_peak_window) %>%
+  ungroup() %>%
+  #find the index value of each start date in numbered day of the year
+  mutate(start_date = yday(start_date))
 
-
+#plot results
 ggplot(peak_windows, aes(x = year, y = start_date)) +
   geom_point() +
   geom_smooth(method = "lm") +
   theme_minimal()
 
-peak_windows <- peak_windows %>%
-  mutate(start_date = yday(start_date)) 
-
+#fit a linear model 
 model <- lm(start_date ~ year, data = peak_windows)
 summary(model)
 #signif :)
 
 #TO DO:
-  # - get rid of daily analysis??
-  # - comment sliding window func
   # - general clean up
   # - improve visualisations
   # - move into markdown file
