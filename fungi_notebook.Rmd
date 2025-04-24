@@ -38,7 +38,7 @@ occ_download(
   format = "SIMPLE_CSV")
 ```
 
-We can check on the status of the request, and then load the results into the globl environment once they're ready
+We can check on the status of the request, and then load the results into the global environment once they're ready
 
 ```{r}
 #check status
@@ -55,7 +55,7 @@ Let's have a look!
 head(raw_data)
 ```
 
-There are a lot of columns that aren't relevant here that we can get rid of. We also only really want observations from iNaturalist, so the collection and verification method is consistent across all observations used to answer our question.
+There are a lot of columns that aren't relevant here that we can get rid of. We also only want observations from iNaturalist for this particular research question. This will also mean the collection and verification method is consistent across all observations in the data set. 
 
 ```{r}
 clean_data <- raw_data %>%
@@ -86,13 +86,13 @@ monthly_counts <- clean_data %>%
   mutate(prop = n/total)
 ```
 
-Let's pop in a quick test to make sure nothing has gone skew-whiff! The sum of all unique values of annual total should be equal to the number of observations:
+Let's do a quick test to make sure nothing has gone skew-whiff! The sum of all unique values of annual total should be equal to the number of observations:
 
 ```{r}
 if(sum(unique(monthly_counts$total)) == nrow(clean_data)){
-  print("all is well :)")
+  print("ok!")
 }else{
-  print("oopsie woopsie")
+  print("check again")
 }
 ```
 
@@ -106,7 +106,8 @@ ggplot(monthly_counts, aes(x = month, y = prop, color = factor(year))) +
        x = "Date (Month)",
        y = "Proportion of Annual Observations",
        color = "Year") +
-  theme_minimal()
+    scale_x_continuous(breaks = seq_along(month.name), labels = month.name) +
+   theme(axis.text.x = element_text(angle = 55, hjust = 1)) 
 ```
 Fruiting time does seem to be shifting later at a first glance, but perhaps by month is not granular enough to really see what's going on - let's check by week instead.
 
@@ -159,6 +160,8 @@ peak_windows <- clean_data %>%
 ggplot(peak_windows, aes(x = year, y = start_date)) +
   geom_point() +
   geom_smooth(method = "lm") +
+  ylab("Peak Fruiting Week (day of year)") +
+  xlab("Year") +
   theme_minimal()
 ```
 definitely looks like it's getting later! To check this, we can fit a linear model
@@ -167,6 +170,12 @@ definitely looks like it's getting later! To check this, we can fit a linear mod
 model <- lm(start_date ~ year, data = peak_windows)
 summary(model)
 ```
+We can see from this that the start date is getting significantly later over the years, but with a relatively low R squared value. This indicates that only around a third of the variation in the data can be explained by the model. There is a high range in residuals suggesting outliers in the data. We can see one particularly anomalous data point in our previous plot, which is likely responsible for this high residual. There is no clear reason for this particular outlier from the data available, so I will not exclude it at this point. However, it does not seem representative of the trend. It is likely that the relatively small sample size of the earlier years renders them sensitive to anomalies. Expanding this research question to include data points from other sources beyond just iNaturalist could prevent outliers such as this.  
+
+
+
+
+
 
 
 
