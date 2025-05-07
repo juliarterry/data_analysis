@@ -1,6 +1,8 @@
 ---
 title: "Fungi Phenology"
-output: html_notebook
+output:
+  html_notebook: default
+  pdf_document: default
 ---
 
 To start lets clear the environment and load all relevant packages

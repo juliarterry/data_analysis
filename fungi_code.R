@@ -146,16 +146,6 @@ model <- lm(start_date ~ year, data = peak_windows)
 summary(model)
 #signif :)
 
-#TO DO:
-  # - general clean up
-  # - improve visualisations
-  # - move into markdown file
-  # - push to github 
-  # - write read me 
-#NEXT: 
-  # - work on cleaning up master's model 
-
-
 
 
 
