@@ -8,7 +8,7 @@ _Programming Language_: R (tidyverse, ggplot2), R Markdown
 
 _Data Wrangling_: Data cleaning, missing value handling, type conversions
 
-_Exploratory Data Analysis_: Descriptive statistics, visual exploration
+_Exploratory Data Analysis_: Visual exploration
 
 _Statistical Analysis & Modeling_: Linear models
 
